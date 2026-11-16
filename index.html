@@ -171,7 +171,7 @@
     <div class="form-box">
       <h3 style="font-size:22px">Request a demo</h3>
       <p style="color:var(--muted);margin:0 0 20px;font-size:15px">We'll reply within one business day.</p>
-      <!-- Connect this form to your backend (e.g. Twilio/your CRM). Store: name, phone, email, both checkbox values, timestamp, IP and page URL as proof of consent. -->
+      <!-- Submissions are saved to Supabase (table public.website_signups, insert-only) as proof of consent. -->
       <form id="contact-form" novalidate>
         <div class="row-2">
           <div class="field"><label for="fname">First name</label><input id="fname" type="text" autocomplete="given-name" required></div>
@@ -183,6 +183,7 @@
           <div class="field"><label for="phone">Mobile phone</label><input id="phone" type="tel" autocomplete="tel"></div>
         </div>
         <div class="field"><label for="msg">How can we help?</label><textarea id="msg"></textarea></div>
+        <div style="position:absolute;left:-9999px" aria-hidden="true"><label for="website">Website</label><input id="website" type="text" tabindex="-1" autocomplete="off"></div>
 
         <label class="consent">
           <input type="checkbox" id="sms-service" name="sms_service">
@@ -196,6 +197,7 @@
         <p class="fineprint">By submitting, you agree to our <a href="terms.html">Terms &amp; SMS Terms</a> and <a href="privacy.html">Privacy Policy</a>. Both checkboxes are optional. We never sell or share your mobile number or text-message consent with third parties.</p>
         <button class="btn" type="submit" style="width:100%;margin-top:6px">Send request</button>
         <div class="thanks" id="thanks">Thank you! We received your request and will be in touch within one business day.</div>
+        <div class="thanks" id="form-error" style="background:#fdecec;border-color:#f3c2c2">Sorry, something went wrong. Please try again, or email hello@nivolink.com or call (845) 352-7243.</div>
       </form>
     </div>
   </div>
@@ -221,20 +223,51 @@
 </footer>
 
 <script>
-document.getElementById('contact-form').addEventListener('submit', function(e){
-  e.preventDefault();
-  var f = this, ok = true;
-  ['fname','lname','email'].forEach(function(id){
-    var el = document.getElementById(id);
-    if(!el.value.trim()){ el.style.borderColor = '#d64545'; ok = false; } else { el.style.borderColor = ''; }
+(function(){
+  var SUPABASE_URL = 'https://uorbgfuohgfvgbcfzjcj.supabase.co';
+  var SUPABASE_KEY = 'sb_publishable_2wB9CoiVDV1fwRX2p_sIQg_JZufGUUs'; // public, insert-only via RLS
+  var form = document.getElementById('contact-form');
+  function $(id){ return document.getElementById(id); }
+  function val(id){ return $(id).value.trim(); }
+  function consentText(id){ return $(id).parentNode.querySelector('span').innerText.trim(); }
+  form.addEventListener('submit', function(e){
+    e.preventDefault();
+    var ok = true;
+    ['fname','lname','email'].forEach(function(id){
+      var el = $(id);
+      if(!el.value.trim()){ el.style.borderColor = '#d64545'; ok = false; } else { el.style.borderColor = ''; }
+    });
+    var svc = $('sms-service').checked, mkt = $('sms-marketing').checked;
+    var phone = $('phone');
+    if((svc || mkt) && !phone.value.trim()){ phone.style.borderColor = '#d64545'; ok = false; } else { phone.style.borderColor = ''; }
+    if(!ok) return;
+    var btn = form.querySelector('button[type=submit]');
+    $('form-error').style.display = 'none';
+    if(val('website')){ $('thanks').style.display = 'block'; btn.disabled = true; return; } // spam bot
+    var consent = [];
+    if(svc) consent.push(consentText('sms-service'));
+    if(mkt) consent.push(consentText('sms-marketing'));
+    var row = {
+      source: 'nivolink.com', form: 'contact',
+      first_name: val('fname'), last_name: val('lname'), company: val('company') || null,
+      email: val('email'), phone: val('phone') || null, message: val('msg') || null,
+      sms_service_consent: svc, sms_marketing_consent: mkt,
+      consent_text: consent.length ? consent.join('\n\n') : null,
+      page_url: location.href.slice(0,500), user_agent: navigator.userAgent.slice(0,500)
+    };
+    btn.disabled = true; btn.textContent = 'Sending...';
+    fetch(SUPABASE_URL + '/rest/v1/website_signups', {
+      method: 'POST',
+      headers: { 'apikey': SUPABASE_KEY, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
+      body: JSON.stringify(row)
+    }).then(function(r){
+      if(!r.ok) throw new Error('HTTP ' + r.status);
+      $('thanks').style.display = 'block'; btn.textContent = 'Sent';
+    }).catch(function(){
+      $('form-error').style.display = 'block'; btn.disabled = false; btn.textContent = 'Send request';
+    });
   });
-  var wantsSms = document.getElementById('sms-service').checked || document.getElementById('sms-marketing').checked;
-  var phone = document.getElementById('phone');
-  if(wantsSms && !phone.value.trim()){ phone.style.borderColor = '#d64545'; ok = false; } else { phone.style.borderColor = ''; }
-  if(!ok) return;
-  document.getElementById('thanks').style.display = 'block';
-  f.querySelector('button[type=submit]').disabled = true;
-});
+})();
 </script>
 </body>
 </html>
